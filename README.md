@@ -2,44 +2,120 @@
 
 Ứng dụng minh họa đặt vé phim dùng MongoDB. Backend Node.js/Express chọn database bằng `MONGODB_DB_NAME` (mặc định `cinema_management`); Mingo/Compass dùng để duyệt và kiểm chứng document thật. Môi trường thực nghiệm ngày 27/11/2026 dùng MongoDB 8.3.8 standalone nên luồng nhiều document không dùng transaction.
 
-## Môi trường
+## Yêu cầu môi trường
 
-- Node.js 22.22.3, npm 10.9.8
-- MongoDB 8.3.8 standalone tại `localhost:27017`
-- Dependency: Express, MongoDB Node.js driver, CORS, dotenv
+- Windows PowerShell.
+- Node.js 22.x và npm 10.x. Phiên bản đã nghiệm thu: Node.js 22.22.3, npm 10.9.8.
+- MongoDB Server 8.x chạy tại `mongodb://127.0.0.1:27017`. Phiên bản đã nghiệm thu: 8.3.8 standalone.
+- MongoDB Database Tools nếu muốn backup/restore một file native bằng `mongodump` và `mongorestore`.
+- Mingo hoặc Studio 3T là tùy chọn, chỉ dùng để duyệt và kiểm chứng dữ liệu.
 
-## Cài đặt và chạy
+Kiểm tra môi trường trên Windows:
 
 ```powershell
-npm install
+node --version
+npm --version
+Get-Service MongoDB
+Get-NetTCPConnection -LocalPort 27017 -State Listen
+```
+
+Nếu dịch vụ MongoDB đã cài nhưng chưa chạy, mở PowerShell với quyền phù hợp và dùng `Start-Service MongoDB`.
+
+## Cài đặt từ source code
+
+Mở PowerShell tại thư mục repository rồi chạy:
+
+```powershell
+npm ci
 Copy-Item .env.example .env # chỉ khi .env chưa tồn tại
-npm run seed               # thêm ID mẫu còn thiếu; không xóa/ghi đè document
+```
+
+`.env.example` mặc định cấu hình:
+
+```dotenv
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB_NAME=cinema_management
+PORT=3000
+```
+
+Không commit `.env`. Backend luôn đọc database từ `MONGODB_DB_NAME`; tên chính thức của dự án là `cinema_management`. Database kiểm thử tạm thời phải có tiền tố `cinema_management_test_` và phải xóa sau nghiệm thu.
+
+## Chuẩn bị dữ liệu
+
+Chọn **một trong hai** phương án dưới đây. Không chạy seed sau khi đã restore và không restore vào database đã có dữ liệu.
+
+### Phương án A – tạo dữ liệu mới bằng seed
+
+Dùng cho máy mới hoặc khi không có file backup. Database `cinema_management` phải chưa tồn tại hoặc cả sáu collection phải rỗng:
+
+```powershell
+$env:MONGODB_DB_NAME = 'cinema_management'
+$env:SEED_REFERENCE_AT = '2026-11-27T03:00:00.000Z'
+npm run seed:demo
+npm run db:check
+```
+
+Seed hoàn thiện dùng PRNG seed `20261128`, tạo 50 khách, 12 phim, 3 phòng (32/40/48 ghế), 45 suất, 1.800 document ghế và 200 booking (170 CONFIRMED, 30 CANCELLED). Có 331 ghế BOOKED và 1.469 ghế AVAILABLE. Sáu collection đều có JSON Schema validator `strict/error`. Script từ chối chạy lại trên database không rỗng để tránh ghi đè.
+
+`npm run seed` chỉ là seed nhỏ tương thích phiên bản cũ; không dùng lệnh này để dựng bộ dữ liệu hoàn thiện. Khi cần bổ sung lịch tương lai mà không sửa lịch/booking cũ, dùng `npm run seed:future` sau khi đã xác minh đúng database.
+
+### Phương án B – phục hồi đúng dữ liệu đã chốt từ một file
+
+File chính thức là `CinemaManagement_FullBackup_2026-11-27.archive.gz`. File này không nằm trong Git repository; cần sao chép riêng vào máy. MongoDB Database Tools phải cung cấp lệnh `mongorestore`.
+
+```powershell
+$archive = 'D:\DuongDan\CinemaManagement_FullBackup_2026-11-27.archive.gz'
+mongorestore --uri='mongodb://127.0.0.1:27017' --archive=$archive --gzip --dryRun
+mongorestore --uri='mongodb://127.0.0.1:27017' --archive=$archive --gzip
+$env:MONGODB_DB_NAME = 'cinema_management'
+npm run db:check
+```
+
+`--dryRun` chỉ kiểm tra nội dung archive. Lệnh restore tiếp theo thực sự ghi dữ liệu; chỉ chạy khi `cinema_management` chưa tồn tại. Không thêm `--drop` nếu chưa chủ động xác nhận xóa dữ liệu cũ.
+
+### Tạo backup native một file
+
+```powershell
+$backup = 'D:\Backup\CinemaManagement_FullBackup_2026-11-27.archive.gz'
+mongodump --uri='mongodb://127.0.0.1:27017' --db='cinema_management' --archive=$backup --gzip
+mongorestore --uri='mongodb://127.0.0.1:27017' --archive=$backup --gzip --dryRun
+```
+
+Archive native chứa document, metadata collection, validator và index. Script `npm run db:backup` vẫn tạo bản Extended JSON tách theo collection để kiểm tra hoặc lưu trữ bổ sung; nó không thay thế archive native một file.
+
+## Chạy API và frontend
+
+Terminal thứ nhất, tại thư mục repository:
+
+```powershell
 npm run dev:api
 ```
 
-`.env.example` mặc định dùng `MONGODB_URI=mongodb://localhost:27017`, `MONGODB_DB_NAME=cinema_management` và `PORT=3000`. Không commit hoặc tự ghi đè `.env`. Bộ dữ liệu hoàn thiện nằm duy nhất ở `cinema_management`; database kiểm thử tạm thời phải có tiền tố `cinema_management_test_` và phải xóa sau nghiệm thu.
-
-`npm run seed` giữ seed nhỏ tương thích phiên bản cũ. Seed hoàn thiện `npm run seed:demo` chỉ được phép ghi vào `cinema_management` hoặc database có tiền tố `cinema_management_test_`, yêu cầu cả sáu collection đang trống và từ chối chạy lại thay vì reset/ghi đè. Dữ liệu dùng PRNG seed `20261128`, mốc `SEED_REFERENCE_AT` tùy chọn và quy tắc ngày theo `Asia/Ho_Chi_Minh`.
-
-Database `cinema_management` được tạo ngày 27/11/2026 với 50 khách, 12 phim, 3 phòng (32/40/48 ghế), 45 suất, 1.800 document ghế và 200 booking (170 CONFIRMED, 30 CANCELLED). Có 331 ghế BOOKED và 1.469 ghế AVAILABLE. Sáu collection đều có JSON Schema validator `strict/error`.
-
-### Chuẩn bị database hoàn thiện
+Kiểm tra API và database đang phục vụ:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_management'
-npm run seed:demo             # chỉ dùng khi database đích hoàn toàn trống
-npm run db:check              # chỉ đọc, exit code 1 nếu có bất nhất
-npm run db:measure-indexes    # executionStats cho bốn truy vấn nghiệp vụ
-npm run seed:future           # bổ sung lịch 7 ngày; không đổi lịch/booking cũ
+Invoke-RestMethod http://127.0.0.1:3000/api/health
 ```
 
-Backup chính thức ngày 27/11/2026 nằm tại `E:\HK7\NoSQL\DoAn\Backups\CinemaManagement\2026-11-27`. Backup sử dụng MongoDB Extended JSON Lines, kèm manifest, validator và index của từng collection. Tạo một backup mới bằng:
+Kết quả đúng phải có `"ok": true` và `"database": "cinema_management"`.
+
+Terminal thứ hai:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_management'
-$env:BACKUP_DIR = 'E:\HK7\NoSQL\DoAn\Backups\CinemaManagement\2026-11-27'
-npm run db:backup
+npm run dev:web
 ```
+
+Mở `http://localhost:5173`. Frontend gọi API tại `http://localhost:3000`. Nếu backend dùng địa chỉ khác, sao chép `frontend/.env.example` thành `frontend/.env`, cập nhật `VITE_API_BASE_URL` rồi khởi động lại Vite.
+
+Kịch bản kiểm tra end-to-end: chọn hồ sơ demo, chọn phim và suất tương lai, chọn ghế AVAILABLE, hoàn tất thanh toán mô phỏng, sau đó mở **Vé của tôi** để xác nhận booking xuất hiện. Trong Mingo mở `cinema_management` để đối chiếu `bookings` và `showtime_seats`.
+
+### Lỗi khởi chạy thường gặp
+
+- `ECONNREFUSED 127.0.0.1:27017`: MongoDB Server chưa chạy hoặc URI sai.
+- `EADDRINUSE` ở cổng `3000`/`5173`: đã có API/Vite khác đang chạy; dừng đúng tiến trình cũ hoặc đổi cổng và cập nhật `VITE_API_BASE_URL`.
+- Không nhận diện `mongodump`/`mongorestore`: kiểm tra bằng `Get-Command mongorestore`; thêm thư mục `MongoDB\Tools\100\bin` vào `PATH` hoặc gọi trực tiếp đường dẫn đầy đủ tới file `.exe`.
+- Seed báo database không rỗng: không chạy lại; dùng dữ liệu hiện có, chọn database kiểm thử mới hoặc chủ động backup trước khi xóa.
+- Web mở được nhưng không có dữ liệu: kiểm tra `/api/health`, `.env`, `frontend/.env` và khởi động lại cả API lẫn Vite sau khi đổi biến môi trường.
 
 Để QA validator, chọn một tên database mới, rỗng và có tiền tố bắt buộc:
 
@@ -48,19 +124,7 @@ $env:MONGODB_DB_NAME = 'cinema_management_test_validators_<hau_to_rieng>'
 npm run db:test-validators
 ```
 
-Không chạy script ghi trực tiếp trên `cinema_management` ngoài quy trình đã xác nhận; script sẽ từ chối sai đích. Chi tiết mô hình, validator và index nằm tại [`database/DATA_MODEL.md`](database/DATA_MODEL.md).
-
-### Chạy frontend
-
-Mở terminal thứ hai và chạy:
-
-```powershell
-npm run dev:web
-```
-
-Mặc định Vite dùng `http://localhost:5173`; frontend gọi API tại `http://localhost:3000`. Có thể sao chép `frontend/.env.example` thành `frontend/.env` và đặt `VITE_API_BASE_URL` nếu backend dùng địa chỉ khác. Sau khi đổi biến môi trường, khởi động lại Vite.
-
-Kịch bản demo end-to-end: đặt `MONGODB_DB_NAME=cinema_management`, chạy MongoDB, backend và frontend; chọn phim/suất/ghế AVAILABLE; đặt vé mô phỏng; xác nhận lịch sử xuất hiện. Trong Mingo mở database cùng tên để xem `bookings` và `showtime_seats`.
+Không chạy script ghi trực tiếp trên `cinema_management` ngoài quy trình đã xác nhận. Chi tiết mô hình, validator và index nằm tại [`database/DATA_MODEL.md`](database/DATA_MODEL.md).
 
 ## API
 
@@ -143,7 +207,7 @@ Kết nối Mingo tới `mongodb://localhost:27017`, mở database `cinema_manag
 4. Gọi `GET /api/customers/CUS001/bookings` để xem lịch sử.
 5. Thử đặt lại ghế đã BOOKED và xác nhận API trả `409`.
 
-Các bộ lọc và pipeline aggregation chỉ đọc được chuẩn bị tại [`database/queries/mingo-readonly.md`](database/queries/mingo-readonly.md). Chạy aggregation/import/export/backup/restore trên database demo chưa được thực hiện trong chặng này; backup/restore chỉ hướng dẫn trên database kiểm thử riêng.
+Các bộ lọc và pipeline aggregation chỉ đọc được chuẩn bị tại [`database/queries/mingo-readonly.md`](database/queries/mingo-readonly.md). Backup native của `cinema_management` đã được tạo và kiểm tra bằng `mongorestore --dryRun`; các thao tác ghi thử, import hoặc restore thử nghiệm vẫn phải dùng database kiểm thử riêng.
 
 ## Nhất quán dữ liệu và giới hạn
 
