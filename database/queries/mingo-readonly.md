@@ -1,6 +1,6 @@
 # Bộ truy vấn chỉ đọc cho Mingo
 
-Database khuyến nghị: `cinema_booking_demo`. Các mẫu bên dưới chỉ đọc. Không chọn lệnh insert/update/delete trong lúc minh họa. Bộ dữ liệu và truy vấn aggregation này chưa được chạy trong Mingo; dùng chúng để chạy lại và chụp ảnh thật.
+Database chính thức: `cinema_management`. Các mẫu bên dưới chỉ đọc. Không chọn lệnh insert/update/delete trong lúc minh họa. Bộ dữ liệu và truy vấn aggregation này chưa được chạy trong Mingo; dùng chúng để chạy lại và chụp ảnh thật.
 
 ## Filter nghiệp vụ
 
@@ -232,7 +232,7 @@ Kiểm kê hiện tại không thấy validator ở sáu collection. Đây là k
 
 Chỉ đánh dấu hoàn tất sau khi thao tác thật trong Mingo và chụp ảnh có dữ liệu/kết quả rõ ràng.
 
-- [ ] Kết nối `localhost:27017`, database `cinema_booking_demo`, đủ sáu collection.
+- [ ] Kết nối `localhost:27017`, database `cinema_management`, đủ sáu collection.
 - [ ] Dùng trang Khám phá dữ liệu để chạy filter/aggregation qua backend; đối chiếu từng kết quả với filter/pipeline đã chạy trên Mingo (trang ứng dụng không được tính là thao tác Mingo).
 - [ ] Mở document thật ở `movies`, `showtimes`, `showtime_seats`, `bookings`.
 - [ ] Chụp filter booking theo khách/trạng thái/khoảng ngày và filter ghế theo suất/trạng thái.
@@ -241,7 +241,7 @@ Chỉ đánh dấu hoàn tất sau khi thao tác thật trong Mingo và chụp �
 - [ ] Chụp indexes và đối chiếu với danh sách phía trên.
 - [ ] Thực hiện import/export chỉ trên database kiểm thử, lưu file mẫu và ảnh kết quả.
 - [ ] Dùng trial Mingo hợp lệ theo điều khoản; không tìm cách né giới hạn.
-- [ ] Backup database demo nếu cần bằng quy trình đã được nhóm duyệt, rồi chỉ restore sang database riêng như `cinema_booking_restore_test`; không dùng `--drop` và không ghi đè database demo.
+- [ ] Backup database chính nếu cần bằng quy trình đã được nhóm duyệt, rồi chỉ restore sang database riêng như `cinema_management_restore_test`; không dùng `--drop` và không ghi đè database chính.
 - [ ] Sau restore kiểm tra số document từng collection, indexes, một filter và một aggregation.
 
 Mỗi ảnh cần chú thích tên chức năng, dữ liệu đang xem, kết quả và ý nghĩa trong đề tài. Mục import/export và backup/restore ở trên chưa được chạy.

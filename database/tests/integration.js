@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { MongoClient } from 'mongodb';
 
-const dbName=process.env.MONGODB_DB_NAME||'';if(!dbName.startsWith('cinema_booking_qa_'))throw new Error('Integration test chỉ được chạy trên database có tiền tố cinema_booking_qa_.');
+const dbName=process.env.MONGODB_DB_NAME||'';if(!dbName.startsWith('cinema_management_test_'))throw new Error('Integration test chỉ được chạy trên database có tiền tố cinema_management_test_.');
 const base=(process.env.TEST_API_BASE_URL||'http://127.0.0.1:3002').replace(/\/$/,'');const client=new MongoClient(process.env.MONGODB_URI||'mongodb://localhost:27017');
 const results=[];const check=(name,ok,detail='')=>{results.push({name,ok,detail});if(!ok)console.error(`FAIL ${name}: ${detail}`);};
 async function api(path,options){const r=await fetch(base+path,{...options,headers:{...(options?.body?{'Content-Type':'application/json'}:{}),...options?.headers}});const data=await r.json().catch(()=>({}));return{status:r.status,data};}

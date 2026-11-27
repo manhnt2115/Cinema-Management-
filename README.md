@@ -1,6 +1,6 @@
 # Cinema Booking – Đồ án NoSQL
 
-Ứng dụng minh họa đặt vé phim dùng MongoDB. Backend Node.js/Express chọn database bằng `MONGODB_DB_NAME` (mặc định `cinema_booking`); Mingo/Compass dùng để duyệt và kiểm chứng document thật. Môi trường thực nghiệm ngày 27/11/2026 dùng MongoDB 8.3.8 standalone nên luồng nhiều document không dùng transaction.
+Ứng dụng minh họa đặt vé phim dùng MongoDB. Backend Node.js/Express chọn database bằng `MONGODB_DB_NAME` (mặc định `cinema_management`); Mingo/Compass dùng để duyệt và kiểm chứng document thật. Môi trường thực nghiệm ngày 27/11/2026 dùng MongoDB 8.3.8 standalone nên luồng nhiều document không dùng transaction.
 
 ## Môi trường
 
@@ -17,30 +17,38 @@ npm run seed               # thêm ID mẫu còn thiếu; không xóa/ghi đè d
 npm run dev:api
 ```
 
-`.env.example` mặc định dùng `MONGODB_URI=mongodb://localhost:27017`, `MONGODB_DB_NAME=cinema_booking` và `PORT=3000`. Không commit hoặc tự ghi đè `.env`. Bộ dữ liệu hoàn thiện nằm ở `cinema_booking_demo`; database QA phải có tiền tố `cinema_booking_qa_`.
+`.env.example` mặc định dùng `MONGODB_URI=mongodb://localhost:27017`, `MONGODB_DB_NAME=cinema_management` và `PORT=3000`. Không commit hoặc tự ghi đè `.env`. Bộ dữ liệu hoàn thiện nằm duy nhất ở `cinema_management`; database kiểm thử tạm thời phải có tiền tố `cinema_management_test_` và phải xóa sau nghiệm thu.
 
-`npm run seed` giữ seed nhỏ tương thích phiên bản cũ. Seed hoàn thiện `npm run seed:demo` chỉ được phép ghi vào `cinema_booking_demo` hoặc database có tiền tố `cinema_booking_qa_`, yêu cầu cả sáu collection đang trống và từ chối chạy lại thay vì reset/ghi đè. Dữ liệu dùng PRNG seed `20261128`, mốc `SEED_REFERENCE_AT` tùy chọn và quy tắc ngày theo `Asia/Ho_Chi_Minh`.
+`npm run seed` giữ seed nhỏ tương thích phiên bản cũ. Seed hoàn thiện `npm run seed:demo` chỉ được phép ghi vào `cinema_management` hoặc database có tiền tố `cinema_management_test_`, yêu cầu cả sáu collection đang trống và từ chối chạy lại thay vì reset/ghi đè. Dữ liệu dùng PRNG seed `20261128`, mốc `SEED_REFERENCE_AT` tùy chọn và quy tắc ngày theo `Asia/Ho_Chi_Minh`.
 
-Database `cinema_booking_demo` được tạo ngày 27/11/2026 với 50 khách, 12 phim, 3 phòng (32/40/48 ghế), 45 suất, 1.800 document ghế và 200 booking (170 CONFIRMED, 30 CANCELLED). Có 331 ghế BOOKED và 1.469 ghế AVAILABLE. Sáu collection đều có JSON Schema validator `strict/error`.
+Database `cinema_management` được tạo ngày 27/11/2026 với 50 khách, 12 phim, 3 phòng (32/40/48 ghế), 45 suất, 1.800 document ghế và 200 booking (170 CONFIRMED, 30 CANCELLED). Có 331 ghế BOOKED và 1.469 ghế AVAILABLE. Sáu collection đều có JSON Schema validator `strict/error`.
 
 ### Chuẩn bị database hoàn thiện
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_booking_demo'
+$env:MONGODB_DB_NAME = 'cinema_management'
 npm run seed:demo             # chỉ dùng khi database đích hoàn toàn trống
 npm run db:check              # chỉ đọc, exit code 1 nếu có bất nhất
 npm run db:measure-indexes    # executionStats cho bốn truy vấn nghiệp vụ
 npm run seed:future           # bổ sung lịch 7 ngày; không đổi lịch/booking cũ
 ```
 
+Backup chính thức ngày 27/11/2026 nằm tại `E:\HK7\NoSQL\DoAn\Backups\CinemaManagement\2026-11-27`. Backup sử dụng MongoDB Extended JSON Lines, kèm manifest, validator và index của từng collection. Tạo một backup mới bằng:
+
+```powershell
+$env:MONGODB_DB_NAME = 'cinema_management'
+$env:BACKUP_DIR = 'E:\HK7\NoSQL\DoAn\Backups\CinemaManagement\2026-11-27'
+npm run db:backup
+```
+
 Để QA validator, chọn một tên database mới, rỗng và có tiền tố bắt buộc:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_booking_qa_validators_<hau_to_rieng>'
+$env:MONGODB_DB_NAME = 'cinema_management_test_validators_<hau_to_rieng>'
 npm run db:test-validators
 ```
 
-Không chạy các script ghi với `cinema_booking`; script sẽ từ chối sai đích. Chi tiết mô hình, validator và index nằm tại [`database/DATA_MODEL.md`](database/DATA_MODEL.md).
+Không chạy script ghi trực tiếp trên `cinema_management` ngoài quy trình đã xác nhận; script sẽ từ chối sai đích. Chi tiết mô hình, validator và index nằm tại [`database/DATA_MODEL.md`](database/DATA_MODEL.md).
 
 ### Chạy frontend
 
@@ -52,7 +60,7 @@ npm run dev:web
 
 Mặc định Vite dùng `http://localhost:5173`; frontend gọi API tại `http://localhost:3000`. Có thể sao chép `frontend/.env.example` thành `frontend/.env` và đặt `VITE_API_BASE_URL` nếu backend dùng địa chỉ khác. Sau khi đổi biến môi trường, khởi động lại Vite.
 
-Kịch bản demo end-to-end: đặt `MONGODB_DB_NAME=cinema_booking_demo`, chạy MongoDB, backend và frontend; chọn phim/suất/ghế AVAILABLE; đặt vé mô phỏng; xác nhận lịch sử xuất hiện. Trong Mingo mở database cùng tên để xem `bookings` và `showtime_seats`.
+Kịch bản demo end-to-end: đặt `MONGODB_DB_NAME=cinema_management`, chạy MongoDB, backend và frontend; chọn phim/suất/ghế AVAILABLE; đặt vé mô phỏng; xác nhận lịch sử xuất hiện. Trong Mingo mở database cùng tên để xem `bookings` và `showtime_seats`.
 
 ## API
 
@@ -127,7 +135,7 @@ Mã lỗi chính: `400` dữ liệu thiếu/sai hoặc ghế trùng/ngoài phòn
 
 ## Kiểm tra bằng Mingo
 
-Kết nối Mingo tới `mongodb://localhost:27017`, mở database được chọn (khuyến nghị `cinema_booking_demo`), sau đó:
+Kết nối Mingo tới `mongodb://localhost:27017`, mở database `cinema_management`, sau đó:
 
 1. Xem `showtime_seats` trước khi tạo booking.
 2. Gửi `POST /api/bookings` bằng Postman/curl với ghế AVAILABLE.
@@ -141,10 +149,10 @@ Các bộ lọc và pipeline aggregation chỉ đọc được chuẩn bị tạ
 
 ### Kiểm thử tích hợp trên QA
 
-Không chạy kiểm thử ghi trên `cinema_booking` hoặc `cinema_booking_demo`. Tạo một QA mới, chạy backend ở cổng riêng rồi kiểm thử:
+Không chạy kiểm thử ghi trên `cinema_management`. Tạo một database kiểm thử tạm thời, chạy backend ở cổng riêng rồi kiểm thử:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_booking_qa_integration_<hau_to_rieng>'
+$env:MONGODB_DB_NAME = 'cinema_management_test_integration_<hau_to_rieng>'
 $env:SEED_REFERENCE_AT = (Get-Date).ToUniversalTime().ToString('o')
 npm run seed:demo
 $env:PORT = '3002'
@@ -154,7 +162,7 @@ npm run dev:api
 Trong terminal khác:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_booking_qa_integration_<hau_to_rieng>'
+$env:MONGODB_DB_NAME = 'cinema_management_test_integration_<hau_to_rieng>'
 $env:TEST_API_BASE_URL = 'http://127.0.0.1:3002'
 npm run test:integration
 npm run db:check
