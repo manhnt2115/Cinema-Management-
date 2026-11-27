@@ -1,6 +1,6 @@
 # Mô hình dữ liệu Cinema Booking
 
-Backend chọn database qua `MONGODB_DB_NAME`, mặc định `cinema_booking`. Dữ liệu hoàn thiện dùng `cinema_booking_demo`; QA chỉ dùng tên bắt đầu bằng `cinema_booking_qa_`.
+Backend chọn database qua `MONGODB_DB_NAME`, mặc định `cinema_management`. Dữ liệu hoàn thiện dùng duy nhất `cinema_management`; database kiểm thử tạm thời chỉ dùng tên bắt đầu bằng `cinema_management_test_`.
 
 ## Sáu collection
 
@@ -19,10 +19,10 @@ MongoDB validator kiểm tra cấu trúc, kiểu BSON, trường bắt buộc, e
 
 Booking hủy do thanh toán thất bại giữ `payment.status: FAILED` và không có `cancellation`. Booking do khách chủ động hủy giữ payment thành công ban đầu và bổ sung `cancellation.reason: CUSTOMER_REQUEST`, thời điểm hủy cùng thông tin hoàn tiền `SIMULATED/SUCCESS`. Cách này không làm mất lịch sử thanh toán gốc.
 
-Validator booking của Nhiệm vụ 03 bổ sung cấu trúc `cancellation`. Trước khi áp dụng lên `cinema_booking_demo`, chạy migration có xác nhận; script kiểm tra toàn bộ document tương thích trước `collMod` và không sửa document:
+Validator booking của Nhiệm vụ 03 bổ sung cấu trúc `cancellation`. Trước khi áp dụng lên `cinema_management`, chạy migration có xác nhận; script kiểm tra toàn bộ document tương thích trước `collMod` và không sửa document:
 
 ```powershell
-$env:MONGODB_DB_NAME = 'cinema_booking_demo'
+$env:MONGODB_DB_NAME = 'cinema_management'
 $env:CONFIRM_SCHEMA_MIGRATION = 'YES'
 npm run db:migrate-task03
 ```

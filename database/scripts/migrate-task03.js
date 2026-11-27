@@ -1,7 +1,7 @@
 import { createClient, dbName } from './config.js';
 import { validators } from './schema.js';
 
-if (dbName !== 'cinema_booking_demo' && !dbName.startsWith('cinema_booking_qa_')) throw new Error(`Từ chối migration database ${dbName}.`);
+if (dbName !== 'cinema_management' && !dbName.startsWith('cinema_management_test_')) throw new Error(`Từ chối migration database ${dbName}.`);
 if (process.env.CONFIRM_SCHEMA_MIGRATION !== 'YES') throw new Error('Chưa xác nhận. Đặt CONFIRM_SCHEMA_MIGRATION=YES sau khi backup/kiểm tra đúng database đích.');
 const client=createClient();
 try{

@@ -11,6 +11,7 @@
     "seed:demo": "node database/seed/seed-demo.js",
     "seed:future": "node database/seed/extend-future.js",
     "db:check": "node database/scripts/check-consistency.js",
+    "db:backup": "node database/scripts/backup-database.js",
     "db:test-validators": "node database/scripts/test-validators.js",
     "db:measure-indexes": "node database/scripts/measure-indexes.js",
     "db:migrate-task03": "node database/scripts/migrate-task03.js",
