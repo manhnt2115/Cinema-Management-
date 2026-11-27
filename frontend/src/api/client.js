@@ -1,0 +1,3 @@
+const API=(import.meta.env.VITE_API_BASE_URL||'http://localhost:3000').replace(/\/$/,'');
+export async function api(path,options={}){const method=(options.method||'GET').toUpperCase();const attempts=method==='GET'?3:1;for(let i=1;i<=attempts;i++){try{const response=await fetch(`${API}${path}`,{...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'Không thể hoàn tất yêu cầu.'),{status:response.status});return data;}catch(error){if(error.status||i===attempts)throw error;await new Promise(resolve=>setTimeout(resolve,200*i));}}}
+export const apiBase=API;

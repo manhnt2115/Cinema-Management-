@@ -7,7 +7,14 @@
     "dev:api": "node --watch backend/src/server.js",
     "dev:web": "vite frontend --host 0.0.0.0",
     "build:web": "vite build frontend",
-    "seed": "node database/seed/seed.js"
+    "seed": "node database/seed/seed.js",
+    "seed:demo": "node database/seed/seed-demo.js",
+    "seed:future": "node database/seed/extend-future.js",
+    "db:check": "node database/scripts/check-consistency.js",
+    "db:test-validators": "node database/scripts/test-validators.js",
+    "db:measure-indexes": "node database/scripts/measure-indexes.js",
+    "db:migrate-task03": "node database/scripts/migrate-task03.js",
+    "test:integration": "node database/tests/integration.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

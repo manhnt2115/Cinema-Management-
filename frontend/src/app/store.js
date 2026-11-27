@@ -1,0 +1,2 @@
+export const store={customers:[],customerId:'CUS001',catalog:[],movies:[],movie:null,showtimes:[],loading:true,error:'',request:0};
+export function posterStyle(movie){if(movie?.posterImage)return`background-image:url('${movie.posterImage}');background-position:center;background-size:cover`;const id=Number(String(movie?._id||'').match(/\d+/)?.[0])||1;const slot=(id-1)%12;return`--poster-x:${slot%3*50}%;--poster-y:${Math.floor(slot/3)*(100/3)}%`;}

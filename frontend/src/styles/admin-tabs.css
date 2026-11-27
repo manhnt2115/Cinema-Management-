@@ -1,0 +1,2 @@
+.explorer-grid>.explorer-aggregation-card:not(.active){display:none!important}.explorer-grid>.explorer-aggregation-card.active{display:block!important}
+.admin-record.movie-record>div:nth-child(2){display:grid;gap:5px;min-width:0}.admin-record.movie-record>div:nth-child(2) strong{margin-bottom:2px}.admin-record.movie-record{column-gap:14px}.admin-record.movie-record .admin-record-actions{justify-self:end}
