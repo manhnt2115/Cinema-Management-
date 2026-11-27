@@ -6,168 +6,54 @@ import { getDb } from './db.js';
 import { registerAdminRoutes } from './admin.js';
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const asyncRoute = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+app.use(cors()); app.use(express.json({ limit: '2mb' }));
+const bookingId = () => `BK-${new Date(Date.now()+25200000).toISOString().slice(0,10).replaceAll('-','')}-${randomBytes(6).toString('hex').toUpperCase()}`;
 
-function createBookingId() {
-  const date = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10).replaceAll('-', '');
-  const suffix = randomBytes(6).toString('hex').toUpperCase();
-  return `BK-${date}-${suffix}`;
-}
-app.get('/api/health', async (_req, res) => {
-  try { const db = await getDb(); await db.command({ ping: 1 }); res.json({ ok: true, database: db.databaseName }); }
-  catch { res.status(503).json({ ok: false, error: 'Không kết nối được MongoDB' }); }
-});
-app.get('/api/movies', async (_req, res, next) => {
-  try { res.json(await (await getDb()).collection('movies').find({ status: 'NOW_SHOWING' }).sort({ title: 1 }).toArray()); }
-  catch (e) { next(e); }
-});
-app.get('/api/movies/:id/showtimes', async (req, res, next) => {
-  try { res.json(await (await getDb()).collection('showtimes').find({ movieId: req.params.id, status: 'OPEN', startAt: { $gte: new Date() } }).sort({ startAt: 1 }).toArray()); }
-  catch (e) { next(e); }
-});
-app.get('/api/showtimes/:id/seats', async (req, res, next) => {
-  try { res.json(await (await getDb()).collection('showtime_seats').find({ showtimeId: req.params.id }).sort({ seatCode: 1 }).toArray()); }
-  catch (e) { next(e); }
-});
-app.post('/api/bookings', async (req, res, next) => {
-  const { customerId, showtimeId, seatCodes } = req.body ?? {};
-  if (typeof customerId !== 'string' || !customerId.trim() || typeof showtimeId !== 'string' || !showtimeId.trim()) {
-    return res.status(400).json({ error: 'customerId và showtimeId là bắt buộc.' });
-  }
-  if (!Array.isArray(seatCodes) || seatCodes.length === 0 || seatCodes.some(code => typeof code !== 'string' || !code.trim())) {
-    return res.status(400).json({ error: 'seatCodes phải là danh sách mã ghế không rỗng.' });
-  }
-  if (new Set(seatCodes).size !== seatCodes.length) return res.status(400).json({ error: 'Danh sách seatCodes không được chứa mã ghế trùng.' });
+app.get('/api/health', asyncRoute(async (_q,res)=>{const db=await getDb();await db.command({ping:1});res.json({ok:true,database:db.databaseName});}));
+app.get('/api/showtimes/:id', asyncRoute(async (req,res)=>{const db=await getDb(),showtime=await db.collection('showtimes').findOne({_id:req.params.id});if(!showtime)return res.status(404).json({error:'Không tìm thấy suất chiếu.'});const [movie,room]=await Promise.all([db.collection('movies').findOne({_id:showtime.movieId}),db.collection('rooms').findOne({_id:showtime.roomId})]);if(!movie||!room)return res.status(409).json({error:'Dữ liệu phim hoặc phòng chiếu của suất chiếu không còn hợp lệ.'});res.json({...showtime,movie:{_id:movie._id,title:movie.title,durationMinutes:movie.durationMinutes,genres:movie.genres,status:movie.status},room:{_id:room._id,name:room.name,capacity:Array.isArray(room.seats)?room.seats.length:0}});}));
+app.get('/api/customers', asyncRoute(async (_q,res)=>res.json(await (await getDb()).collection('customers').find({}, {projection:{_id:1,fullName:1}}).sort({fullName:1,_id:1}).toArray())));
+app.get('/api/customers/:id', asyncRoute(async (req,res)=>{const x=await (await getDb()).collection('customers').findOne({_id:req.params.id},{projection:{_id:1,fullName:1,createdAt:1}});if(!x)return res.status(404).json({error:'Không tìm thấy khách hàng.'});res.json(x);}));
+app.get('/api/movies', asyncRoute(async (_q,res)=>res.json(await (await getDb()).collection('movies').find({status:'NOW_SHOWING'}).sort({title:1,_id:1}).toArray())));
+app.get('/api/catalog/movies', asyncRoute(async (_q,res)=>res.json(await (await getDb()).collection('movies').find({}).sort({status:1,title:1,_id:1}).toArray())));
+app.get('/api/movies/:id', asyncRoute(async (req,res)=>{const movie=await (await getDb()).collection('movies').findOne({_id:req.params.id});if(!movie)return res.status(404).json({error:'Không tìm thấy phim.'});res.json(movie);}));
+app.get('/api/movies/:id/showtimes', asyncRoute(async (req,res)=>{const db=await getDb();if(!await db.collection('movies').findOne({_id:req.params.id},{projection:{_id:1}}))return res.status(404).json({error:'Không tìm thấy phim.'});res.json(await db.collection('showtimes').find({movieId:req.params.id,status:'OPEN',startAt:{$gt:new Date()}}).sort({startAt:1,_id:1}).toArray());}));
+app.get('/api/rooms/:id', asyncRoute(async (req,res)=>{const db=await getDb(),room=await db.collection('rooms').findOne({_id:req.params.id});if(!room)return res.status(404).json({error:'Không tìm thấy phòng chiếu.'});const showtimes=await db.collection('showtimes').find({roomId:room._id}).sort({startAt:1,_id:1}).toArray();res.json({...room,capacity:Array.isArray(room.seats)?room.seats.length:0,showtimes});}));
+app.get('/api/showtimes/:id/seats', asyncRoute(async (req,res)=>{const db=await getDb();if(!await db.collection('showtimes').findOne({_id:req.params.id},{projection:{_id:1}}))return res.status(404).json({error:'Không tìm thấy suất chiếu.'});res.json(await db.collection('showtime_seats').find({showtimeId:req.params.id}).sort({seatCode:1}).toArray());}));
 
-  const db = await getDb();
-  const customers = db.collection('customers');
-  const showtimes = db.collection('showtimes');
-  const rooms = db.collection('rooms');
-  const seats = db.collection('showtime_seats');
-  const bookings = db.collection('bookings');
-  const customer = await customers.findOne({ _id: customerId });
-  if (!customer) return res.status(404).json({ error: 'Không tìm thấy khách hàng.' });
-  const showtime = await showtimes.findOne({ _id: showtimeId });
-  if (!showtime) return res.status(404).json({ error: 'Không tìm thấy suất chiếu.' });
-  const startAt = new Date(showtime.startAt);
-  const endAt = new Date(showtime.endAt);
-  if (showtime.status !== 'OPEN') return res.status(409).json({ error: 'Suất chiếu hiện không mở bán.' });
-  if (!Number.isFinite(startAt.getTime()) || !Number.isFinite(endAt.getTime()) || endAt <= startAt || startAt <= new Date()) {
-    return res.status(409).json({ error: 'Thời gian suất chiếu không hợp lệ hoặc đã bắt đầu.' });
-  }
-  if (typeof showtime.basePriceVnd !== 'number' || !Number.isFinite(showtime.basePriceVnd) || showtime.basePriceVnd < 0) {
-    return res.status(500).json({ error: 'Suất chiếu chưa có giá vé hợp lệ.' });
-  }
-  const room = await rooms.findOne({ _id: showtime.roomId });
-  if (!room) return res.status(409).json({ error: 'Phòng chiếu của suất chiếu không tồn tại.' });
-  const requestedSeats = new Set(seatCodes);
-  const roomSeats = Array.isArray(room.seats) ? room.seats : [];
-  if ([...requestedSeats].some(code => !roomSeats.some(seat => seat.code === code))) {
-    return res.status(400).json({ error: 'Một hoặc nhiều ghế không thuộc sơ đồ phòng của suất chiếu.' });
-  }
-  const seatDocs = await seats.find({ showtimeId, seatCode: { $in: seatCodes } }).toArray();
-  if (seatDocs.length !== seatCodes.length) return res.status(404).json({ error: 'Không tìm thấy trạng thái của một hoặc nhiều ghế trong suất chiếu.' });
-  if (seatDocs.some(seat => !['AVAILABLE', 'HELD', 'BOOKED'].includes(seat.status))) {
-    return res.status(409).json({ error: 'Dữ liệu trạng thái của ghế không hợp lệ.' });
-  }
+app.post('/api/bookings', asyncRoute(async (req,res)=>{
+ let {customerId,showtimeId,seatCodes}=req.body??{};customerId=typeof customerId==='string'?customerId.trim():'';showtimeId=typeof showtimeId==='string'?showtimeId.trim():'';
+ if(!customerId||!showtimeId)return res.status(400).json({error:'customerId và showtimeId là bắt buộc.'});
+ if(!Array.isArray(seatCodes)||!seatCodes.length||seatCodes.some(x=>typeof x!=='string'||!x.trim()))return res.status(400).json({error:'seatCodes phải là danh sách mã ghế không rỗng.'});
+ seatCodes=seatCodes.map(x=>x.trim());if(new Set(seatCodes).size!==seatCodes.length)return res.status(400).json({error:'Danh sách seatCodes không được chứa mã ghế trùng.'});
+ const db=await getDb(),customers=db.collection('customers'),movies=db.collection('movies'),showtimes=db.collection('showtimes'),rooms=db.collection('rooms'),seats=db.collection('showtime_seats'),bookings=db.collection('bookings');
+ if(!await customers.findOne({_id:customerId},{projection:{_id:1}}))return res.status(404).json({error:'Không tìm thấy khách hàng.'});
+ const showtime=await showtimes.findOne({_id:showtimeId});if(!showtime)return res.status(404).json({error:'Không tìm thấy suất chiếu.'});
+ const [movie,room]=await Promise.all([movies.findOne({_id:showtime.movieId}),rooms.findOne({_id:showtime.roomId})]);
+ if(!movie)return res.status(409).json({error:'Phim của suất chiếu không tồn tại.'});if(movie.status!=='NOW_SHOWING')return res.status(409).json({error:'Phim hiện không ở trạng thái đang chiếu.'});if(!room)return res.status(409).json({error:'Phòng chiếu của suất chiếu không tồn tại.'});
+ const start=new Date(showtime.startAt),end=new Date(showtime.endAt);if(showtime.status!=='OPEN')return res.status(409).json({error:'Suất chiếu hiện không mở bán.'});if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||start<=new Date())return res.status(409).json({error:'Thời gian suất chiếu không hợp lệ hoặc đã bắt đầu.'});if(!Number.isSafeInteger(showtime.basePriceVnd)||showtime.basePriceVnd<0)throw new Error('Giá vé của suất chiếu không hợp lệ.');
+ const roomCodes=new Set((room.seats||[]).map(x=>x.code));if(seatCodes.some(x=>!roomCodes.has(x)))return res.status(400).json({error:'Một hoặc nhiều ghế không thuộc sơ đồ phòng của suất chiếu.'});
+ if(await seats.countDocuments({showtimeId,seatCode:{$in:seatCodes}})!==seatCodes.length)return res.status(409).json({error:'Trạng thái ghế của suất chiếu chưa được khởi tạo đầy đủ.'});
+ const id=bookingId(),held=[];let inserted=false;const compensate=async()=>{await seats.updateMany({showtimeId,seatCode:{$in:held},bookingId:id,status:{$in:['HELD','BOOKED']}},{$set:{status:'AVAILABLE',bookingId:null,holdExpiresAt:null}});if(inserted)await bookings.updateOne({_id:id,status:{$in:['PENDING','CONFIRMED']}},{$set:{status:'CANCELLED','payment.status':'FAILED','payment.failedAt':new Date()}});};
+ try{
+  for(const code of seatCodes){const r=await seats.updateOne({showtimeId,seatCode:code,status:'AVAILABLE',bookingId:null},{$set:{status:'HELD',bookingId:id,holdExpiresAt:null}});if(r.matchedCount!==1||r.modifiedCount!==1){await compensate();return res.status(409).json({error:`Ghế ${code} không còn khả dụng; không tạo booking thành công.`});}held.push(code);}
+  const bookingSeats=seatCodes.map(seatCode=>({seatCode,unitPriceVnd:showtime.basePriceVnd})),doc={_id:id,customerId,showtimeId,movieId:showtime.movieId,seats:bookingSeats,totalAmountVnd:showtime.basePriceVnd*seatCodes.length,status:'PENDING',payment:{method:'SIMULATED',status:'PENDING',paidAt:null},createdAt:new Date()};
+  await bookings.insertOne(doc);inserted=true;const confirmed=await seats.updateMany({showtimeId,seatCode:{$in:held},status:'HELD',bookingId:id},{$set:{status:'BOOKED',holdExpiresAt:null}});if(confirmed.matchedCount!==held.length||confirmed.modifiedCount!==held.length)throw new Error('Không thể xác nhận đầy đủ quyền sở hữu ghế.');
+  const paidAt=new Date(),finalized=await bookings.updateOne({_id:id,status:'PENDING','payment.status':'PENDING'},{$set:{status:'CONFIRMED','payment.status':'SUCCESS','payment.paidAt':paidAt}});if(finalized.modifiedCount!==1)throw new Error('Không thể xác nhận booking và thanh toán mô phỏng.');res.status(201).json({...doc,status:'CONFIRMED',payment:{method:'SIMULATED',status:'SUCCESS',paidAt}});
+ }catch(error){try{await compensate();}catch(e){console.error('Booking compensation failed:',e.message);}throw error;}
+}));
 
-  const bookingId = createBookingId();
-  const heldCodes = [];
-  let bookingInserted = false;
-  const compensate = async () => {
-    await seats.updateMany(
-      { showtimeId, seatCode: { $in: seatCodes }, bookingId, status: { $in: ['HELD', 'BOOKED'] } },
-      { $set: { status: 'AVAILABLE', bookingId: null, holdExpiresAt: null } }
-    );
-    if (bookingInserted) {
-      await bookings.updateOne({ _id: bookingId, status: { $in: ['PENDING', 'CONFIRMED'] } },
-        { $set: { status: 'CANCELLED', 'payment.status': 'FAILED', 'payment.failedAt': new Date() } });
-    }
-  };
+async function history(customerId){const db=await getDb();if(!await db.collection('customers').findOne({_id:customerId},{projection:{_id:1}}))return null;return db.collection('bookings').aggregate([{$match:{customerId}},{$lookup:{from:'movies',localField:'movieId',foreignField:'_id',as:'movie'}},{$lookup:{from:'showtimes',localField:'showtimeId',foreignField:'_id',as:'showtime'}},{$set:{movieTitle:{$ifNull:[{$first:'$movie.title'},null]},startAt:{$ifNull:[{$first:'$showtime.startAt'},null]},roomId:{$ifNull:[{$first:'$showtime.roomId'},null]}}},{$unset:['movie','showtime']},{$sort:{createdAt:-1,_id:-1}}]).toArray();}
+app.get('/api/customers/:customerId/bookings/details',asyncRoute(async(req,res)=>{const x=await history(req.params.customerId);if(!x)return res.status(404).json({error:'Không tìm thấy khách hàng.'});res.json(x);}));
+app.get('/api/customers/:customerId/bookings',asyncRoute(async(req,res)=>{const x=await history(req.params.customerId);if(!x)return res.status(404).json({error:'Không tìm thấy khách hàng.'});res.json(x.map(({movieTitle,startAt,roomId,...v})=>v));}));
 
-  try {
-    for (const seatCode of seatCodes) {
-      const result = await seats.updateOne(
-        { showtimeId, seatCode, status: 'AVAILABLE', bookingId: null },
-        { $set: { status: 'HELD', bookingId, holdExpiresAt: null } }
-      );
-      if (result.modifiedCount !== 1) {
-        await compensate();
-        return res.status(409).json({ error: `Ghế ${seatCode} không còn khả dụng; không tạo booking thành công.` });
-      }
-      heldCodes.push(seatCode);
-    }
+app.post('/api/customers/:customerId/bookings/:bookingId/cancel',asyncRoute(async(req,res)=>{
+ const db=await getDb(),bookings=db.collection('bookings'),seats=db.collection('showtime_seats'),booking=await bookings.findOne({_id:req.params.bookingId});if(!booking)return res.status(404).json({error:'Không tìm thấy booking.'});if(booking.customerId!==req.params.customerId)return res.status(404).json({error:'Không tìm thấy booking của khách hàng này.'});if(booking.status!=='CONFIRMED')return res.status(409).json({error:'Chỉ booking đã xác nhận mới có thể hủy.'});
+ const show=await db.collection('showtimes').findOne({_id:booking.showtimeId});if(!show)return res.status(409).json({error:'Suất chiếu của booking không tồn tại.'});if(new Date(show.startAt)<=new Date())return res.status(409).json({error:'Không thể hủy booking của suất đã bắt đầu.'});
+ const at=new Date(),cancellation={reason:'CUSTOMER_REQUEST',cancelledAt:at,refund:{method:'SIMULATED',status:'SUCCESS',refundedAt:at}},claimed=await bookings.updateOne({_id:booking._id,customerId:booking.customerId,status:'CONFIRMED'},{$set:{status:'CANCELLED',cancellation}});if(claimed.modifiedCount!==1)return res.status(409).json({error:'Booking đã được xử lý bởi yêu cầu khác.'});
+ try{const codes=booking.seats.map(x=>x.seatCode),released=await seats.updateMany({showtimeId:booking.showtimeId,seatCode:{$in:codes},status:'BOOKED',bookingId:booking._id},{$set:{status:'AVAILABLE',bookingId:null,holdExpiresAt:null}});if(released.matchedCount!==codes.length||released.modifiedCount!==codes.length)throw new Error('Không thể giải phóng đầy đủ ghế của booking.');res.json({...booking,status:'CANCELLED',cancellation});}
+ catch(error){await bookings.updateOne({_id:booking._id,status:'CANCELLED','cancellation.cancelledAt':at},{$set:{status:'CONFIRMED'},$unset:{cancellation:''}});throw error;}
+}));
 
-    const bookingSeats = seatCodes.map(seatCode => ({ seatCode, unitPriceVnd: showtime.basePriceVnd }));
-    const booking = {
-      _id: bookingId, customerId, showtimeId, movieId: showtime.movieId,
-      seats: bookingSeats,
-      totalAmountVnd: showtime.basePriceVnd * seatCodes.length,
-      status: 'PENDING',
-      payment: { method: 'SIMULATED', status: 'PENDING', paidAt: null },
-      createdAt: new Date()
-    };
-    await bookings.insertOne(booking);
-    bookingInserted = true;
-
-    for (const seatCode of heldCodes) {
-      const result = await seats.updateOne(
-        { showtimeId, seatCode, status: 'HELD', bookingId },
-        { $set: { status: 'BOOKED', holdExpiresAt: null } }
-      );
-      if (result.modifiedCount !== 1) throw new Error(`Không thể xác nhận ghế ${seatCode}.`);
-    }
-
-    const paidAt = new Date();
-    const finalization = await bookings.updateOne(
-      { _id: bookingId, status: 'PENDING', 'payment.status': 'PENDING' },
-      { $set: { status: 'CONFIRMED', 'payment.status': 'SUCCESS', 'payment.paidAt': paidAt } }
-    );
-    if (finalization.modifiedCount !== 1) throw new Error('Không thể xác nhận booking và thanh toán mô phỏng.');
-
-    return res.status(201).json({ ...booking, status: 'CONFIRMED', payment: { method: 'SIMULATED', status: 'SUCCESS', paidAt } });
-  } catch (error) {
-    try { await compensate(); }
-    catch (compensationError) { console.error('Booking compensation failed:', compensationError.message); }
-    return next(error);
-  }
-});
-app.get('/api/customers/:customerId/bookings/details', async (req, res, next) => {
-  try {
-    const db = await getDb();
-    const customerId = req.params.customerId;
-    if (!await db.collection('customers').findOne({ _id: customerId }, { projection: { _id: 1 } })) {
-      return res.status(404).json({ error: 'Không tìm thấy khách hàng.' });
-    }
-    const bookings = await db.collection('bookings').find({ customerId }).sort({ createdAt: -1 }).toArray();
-    const movieIds = [...new Set(bookings.map(booking => booking.movieId).filter(Boolean))];
-    const showtimeIds = [...new Set(bookings.map(booking => booking.showtimeId).filter(Boolean))];
-    const [movies, showtimes] = await Promise.all([
-      movieIds.length ? db.collection('movies').find({ _id: { $in: movieIds } }, { projection: { _id: 1, title: 1 } }).toArray() : [],
-      showtimeIds.length ? db.collection('showtimes').find({ _id: { $in: showtimeIds } }, { projection: { _id: 1, startAt: 1 } }).toArray() : []
-    ]);
-    const movieTitles = new Map(movies.map(movie => [movie._id, movie.title]));
-    const showtimeDates = new Map(showtimes.map(showtime => [showtime._id, showtime.startAt]));
-    return res.json(bookings.map(booking => ({
-      ...booking,
-      movieTitle: movieTitles.get(booking.movieId) || null,
-      startAt: showtimeDates.get(booking.showtimeId) || null
-    })));
-  } catch (error) { return next(error); }
-});
-
-app.get('/api/customers/:customerId/bookings', async (req, res, next) => {
-  try {
-    const db = await getDb();
-    if (!await db.collection('customers').findOne({ _id: req.params.customerId }, { projection: { _id: 1 } })) {
-      return res.status(404).json({ error: 'Không tìm thấy khách hàng.' });
-    }
-    const items = await db.collection('bookings').find({ customerId: req.params.customerId }).sort({ createdAt: -1 }).toArray();
-    return res.json(items);
-  } catch (error) { return next(error); }
-});
-registerAdminRoutes(app);
-app.use((err, _req, res, _next) => { console.error(err.message); res.status(500).json({ error: 'Đã xảy ra lỗi máy chủ.' }); });
-const port = Number(process.env.PORT || 3000);
-app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+registerAdminRoutes(app);app.use((_q,res)=>res.status(404).json({error:'Không tìm thấy API.'}));app.use((err,_q,res,_n)=>{console.error(err.message);if(!res.headersSent)res.status(500).json({error:'Đã xảy ra lỗi máy chủ.'});});
+const port=Number(process.env.PORT||3000);app.listen(port,()=>console.log(`API listening on http://localhost:${port}`));

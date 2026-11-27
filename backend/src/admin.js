@@ -4,7 +4,7 @@ import { getDb } from './db.js';
 const movieStatuses = new Set(['NOW_SHOWING', 'COMING_SOON']);
 const showtimeStatuses = new Set(['OPEN', 'CLOSED']);
 const bookingStatuses = new Set(['PENDING', 'CONFIRMED', 'CANCELLED']);
-const allowedAdminOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173']);
+const allowedAdminOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174']);
 
 function isLocalRequest(req) {
   const address = String(req.socket.remoteAddress || '').toLowerCase();
@@ -17,12 +17,14 @@ function readMovieInput(body) {
   const durationMinutes = Number(body?.durationMinutes);
   const status = body?.status;
   const synopsis = typeof body?.synopsis === 'string' ? body.synopsis.trim() : '';
+  const posterImage = typeof body?.posterImage === 'string' ? body.posterImage.trim() : '';
   if (!title || title.length > 160) return { error: 'Tên phim là bắt buộc và tối đa 160 ký tự.' };
   if (!genres.length || genres.some(value => !value) || new Set(genres).size !== genres.length) return { error: 'Thể loại phải là danh sách không rỗng, không có mục trống hoặc trùng.' };
   if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) return { error: 'Thời lượng phải là số nguyên từ 1 đến 600 phút.' };
   if (!movieStatuses.has(status)) return { error: 'Trạng thái phim phải là NOW_SHOWING hoặc COMING_SOON.' };
   if (synopsis.length > 2000) return { error: 'Tóm tắt phim tối đa 2.000 ký tự.' };
-  return { value: { title, genres, durationMinutes, status, synopsis } };
+  if (posterImage && (!/^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/=]+$/i.test(posterImage) || posterImage.length > 1500000)) return { error: 'Ảnh phim phải là JPEG, PNG hoặc WebP và không vượt quá giới hạn lưu trữ.' };
+  return { value: { title, genres, durationMinutes, status, synopsis, posterImage } };
 }
 
 function readShowtimeInput(body) {
@@ -41,10 +43,12 @@ function readShowtimeInput(body) {
 
 async function checkSchedule(db, value, excludingId) {
   const [movie, room] = await Promise.all([
-    db.collection('movies').findOne({ _id: value.movieId }, { projection: { _id: 1 } }),
+    db.collection('movies').findOne({ _id: value.movieId }, { projection: { _id: 1, status: 1, durationMinutes: 1 } }),
     db.collection('rooms').findOne({ _id: value.roomId }, { projection: { _id: 1, seats: 1 } })
   ]);
   if (!movie) return 'Không tìm thấy phim.';
+  if (value.status === 'OPEN' && movie.status !== 'NOW_SHOWING') return 'Chỉ phim NOW_SHOWING mới được mở bán suất chiếu.';
+  if (value.endAt.getTime() !== value.startAt.getTime() + movie.durationMinutes * 60000) return 'Giờ kết thúc phải đúng bằng giờ bắt đầu cộng thời lượng phim.';
   if (!room) return 'Không tìm thấy phòng chiếu.';
   const roomSeats = Array.isArray(room.seats) ? room.seats : [];
   const seatCodes = roomSeats.map(seat => seat?.code).filter(code => typeof code === 'string' && code.trim());
@@ -91,7 +95,7 @@ export function registerAdminRoutes(app) {
   app.get('/api/admin/analytics', async (_req, res, next) => {
     try {
       const db = await getDb();
-      const [ticketsByMovie, revenueByDay, seatOccupancy] = await Promise.all([
+      const [ticketsByMovie, revenueByDay, seatOccupancy, ticketsByTimeSlot, bookingsByStatus, topCustomers, counts] = await Promise.all([
         db.collection('bookings').aggregate([
           { $match: { status: 'CONFIRMED' } },
           { $unwind: '$seats' },
@@ -110,9 +114,28 @@ export function registerAdminRoutes(app) {
           { $group: { _id: '$showtimeId', seatCount: { $sum: 1 }, bookedCount: { $sum: { $cond: [{ $eq: ['$status', 'BOOKED'] }, 1, 0] } } } },
           { $project: { _id: 0, showtimeId: '$_id', seatCount: 1, bookedCount: 1, bookedPercent: { $cond: [{ $eq: ['$seatCount', 0] }, 0, { $multiply: [{ $divide: ['$bookedCount', '$seatCount'] }, 100] }] } } },
           { $sort: { showtimeId: 1 } }
-        ]).toArray()
+        ]).toArray(),
+        db.collection('bookings').aggregate([
+          { $match: { status: 'CONFIRMED' } },
+          { $lookup: { from: 'showtimes', localField: 'showtimeId', foreignField: '_id', as: 'showtime' } },
+          { $unwind: '$showtime' }, { $unwind: '$seats' },
+          { $set: { hour: { $hour: { date: '$showtime.startAt', timezone: 'Asia/Ho_Chi_Minh' } } } },
+          { $set: { timeSlot: { $switch: { branches: [
+            { case: { $lt: ['$hour', 12] }, then: 'Sáng' }, { case: { $lt: ['$hour', 17] }, then: 'Trưa/Chiều' }, { case: { $lt: ['$hour', 21] }, then: 'Tối' }
+          ], default: 'Khuya' } } } },
+          { $group: { _id: '$timeSlot', ticketCount: { $sum: 1 }, totalAmountVnd: { $sum: '$seats.unitPriceVnd' } } }, { $sort: { ticketCount: -1, _id: 1 } }
+        ]).toArray(),
+        db.collection('bookings').aggregate([{ $group: { _id: '$status', bookingCount: { $sum: 1 }, ticketCount: { $sum: { $size: '$seats' } }, totalAmountVnd: { $sum: '$totalAmountVnd' } } }, { $sort: { _id: 1 } }]).toArray(),
+        db.collection('bookings').aggregate([
+          { $match: { status: 'CONFIRMED' } }, { $group: { _id: '$customerId', bookingCount: { $sum: 1 }, ticketCount: { $sum: { $size: '$seats' } }, totalAmountVnd: { $sum: '$totalAmountVnd' } } },
+          { $lookup: { from: 'customers', localField: '_id', foreignField: '_id', as: 'customer' } },
+          { $project: { _id: 0, customerId: '$_id', customerName: { $ifNull: [{ $first: '$customer.fullName' }, 'Không rõ khách'] }, bookingCount: 1, ticketCount: 1, totalAmountVnd: 1 } },
+          { $sort: { bookingCount: -1, ticketCount: -1, customerId: 1 } }, { $limit: 10 }
+        ]).toArray(),
+        Promise.all(['customers','movies','showtimes','bookings'].map(async name => [name, await db.collection(name).countDocuments({})])).then(Object.fromEntries)
       ]);
-      return res.json({ ticketsByMovie, revenueByDay, seatOccupancy });
+      const confirmed = bookingsByStatus.find(item => item._id === 'CONFIRMED');
+      return res.json({ ticketsByMovie, revenueByDay, seatOccupancy, ticketsByTimeSlot, bookingsByStatus, topCustomers, kpis: { ...counts, confirmedTickets: confirmed?.ticketCount || 0, confirmedValueVnd: confirmed?.totalAmountVnd || 0 } });
     } catch (error) { return next(error); }
   });
 
@@ -156,6 +179,14 @@ export function registerAdminRoutes(app) {
     try {
       const rooms = await (await getDb()).collection('rooms').find({}, { projection: { _id: 1, name: 1, seats: 1 } }).sort({ name: 1 }).toArray();
       return res.json(rooms.map(room => ({ _id: room._id, name: room.name, seatCount: Array.isArray(room.seats) ? room.seats.length : 0 })));
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/admin/customers', async (req, res, next) => {
+    try {
+      const query = String(req.query.q || '').trim(); const filter = query ? { $or: [{ _id: { $regex: query, $options: 'i' } }, { fullName: { $regex: query, $options: 'i' } }] } : {};
+      const db = await getDb(); const items = await db.collection('customers').aggregate([{ $match: filter }, { $lookup: { from: 'bookings', localField: '_id', foreignField: 'customerId', as: 'bookings' } }, { $project: { fullName: 1, createdAt: 1, bookingCount: { $size: '$bookings' } } }, { $sort: { fullName: 1, _id: 1 } }]).toArray();
+      return res.json(items);
     } catch (error) { return next(error); }
   });
 
@@ -243,6 +274,7 @@ export function registerAdminRoutes(app) {
       if (req.query.bookingId) filter._id = String(req.query.bookingId).trim();
       if (req.query.customerId) filter.customerId = String(req.query.customerId).trim();
       if (req.query.showtimeId) filter.showtimeId = String(req.query.showtimeId).trim();
+      if (req.query.movieId) filter.movieId = String(req.query.movieId).trim();
       if (req.query.status) {
         const status = String(req.query.status);
         if (!bookingStatuses.has(status)) return res.status(400).json({ error: 'Trạng thái booking không hợp lệ.' });
@@ -256,9 +288,12 @@ export function registerAdminRoutes(app) {
         if (from) filter.createdAt.$gte = from;
         if (to) filter.createdAt.$lt = to;
       }
-      const db = await getDb();
-      const items = await db.collection('bookings').find(filter).sort({ createdAt: -1 }).limit(100).toArray();
-      return res.json(await attachShowtimeDetails(db, items));
+      const page = Number(req.query.page || 0), pageSize = Number(req.query.pageSize || 20);
+      if (!Number.isInteger(page) || page < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) return res.status(400).json({ error: 'Phân trang không hợp lệ; page >= 1 và pageSize từ 1 đến 100.' });
+      const db = await getDb(), collection = db.collection('bookings');
+      if (!page) return res.json(await attachShowtimeDetails(db, await collection.find(filter).sort({ createdAt: -1, _id: -1 }).limit(100).toArray()));
+      const total = await collection.countDocuments(filter), items = await collection.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray();
+      return res.json({ items: await attachShowtimeDetails(db, items), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
     } catch (error) { return next(error); }
   });
 }

@@ -1,6 +1,6 @@
 # Bộ truy vấn chỉ đọc cho Mingo
 
-Database: `cinema_booking`. Các mẫu bên dưới chỉ đọc. Không chọn lệnh insert/update/delete trong lúc minh họa. Bộ dữ liệu và truy vấn aggregation này chưa được chạy trong Mingo; dùng chúng để chạy lại và chụp ảnh thật.
+Database khuyến nghị: `cinema_booking_demo`. Các mẫu bên dưới chỉ đọc. Không chọn lệnh insert/update/delete trong lúc minh họa. Bộ dữ liệu và truy vấn aggregation này chưa được chạy trong Mingo; dùng chúng để chạy lại và chụp ảnh thật.
 
 ## Filter nghiệp vụ
 
@@ -47,9 +47,9 @@ Trang quản trị **Suất chiếu** cũng cho lọc danh sách theo `movieId`,
 
 ## Aggregation Builder
 
-Chọn collection `bookings` làm đầu vào cho cả ba pipeline.
+Chọn collection `bookings` làm đầu vào cho hai pipeline đầu. Pipeline tỷ lệ ghế dùng collection `showtime_seats`.
 
-Ba phép tính bên dưới cũng được endpoint chỉ đọc `GET /api/admin/analytics` dùng để hiển thị trong trang Quản trị demo. Đây là cùng logic aggregation ở backend để có thể so sánh kết quả Mingo với ứng dụng. Các pipeline trong tài liệu **chưa được chạy trên Mingo**; khi bàn giao, người kiểm tra cần ghi phiên bản Mingo và lưu ảnh kết quả thật.
+Sáu phép tính bên dưới cũng được endpoint chỉ đọc `GET /api/admin/analytics` dùng để hiển thị trong trang Quản trị demo. Đây là cùng logic aggregation ở backend để có thể so sánh kết quả Mingo với ứng dụng. Các pipeline trong tài liệu **chưa được chạy trên Mingo**; khi bàn giao, người kiểm tra cần ghi phiên bản Mingo và lưu ảnh kết quả thật.
 
 ### Vé và giá trị booking CONFIRMED theo phim
 
@@ -157,6 +157,55 @@ Collection đầu vào: `showtime_seats` (khác hai pipeline trên).
 
 Index `{ showtimeId: 1, seatCode: 1 }` hỗ trợ lọc theo suất; pipeline toàn bộ suất vẫn cần đọc các ghế trong collection.
 
+### Số vé theo khung giờ chiếu
+
+Collection đầu vào: `bookings`. Chỉ tính booking `CONFIRMED`; giờ chiếu được lấy từ `showtimes.startAt` theo `Asia/Ho_Chi_Minh`.
+
+```json
+[
+  { "$match": { "status": "CONFIRMED" } },
+  { "$lookup": { "from": "showtimes", "localField": "showtimeId", "foreignField": "_id", "as": "showtime" } },
+  { "$unwind": "$showtime" },
+  { "$unwind": "$seats" },
+  { "$set": { "hour": { "$hour": { "date": "$showtime.startAt", "timezone": "Asia/Ho_Chi_Minh" } } } },
+  { "$set": { "timeSlot": { "$switch": { "branches": [
+    { "case": { "$lt": ["$hour", 12] }, "then": "Sáng" },
+    { "case": { "$lt": ["$hour", 17] }, "then": "Trưa/Chiều" },
+    { "case": { "$lt": ["$hour", 21] }, "then": "Tối" }
+  ], "default": "Khuya" } } } },
+  { "$group": { "_id": "$timeSlot", "ticketCount": { "$sum": 1 }, "totalAmountVnd": { "$sum": "$seats.unitPriceVnd" } } },
+  { "$sort": { "ticketCount": -1, "_id": 1 } }
+]
+```
+
+### Phân bố booking theo trạng thái
+
+Collection đầu vào: `bookings`. `bookingCount` là số đơn; `ticketCount` là tổng số phần tử trong mảng `seats`.
+
+```json
+[
+  { "$group": { "_id": "$status", "bookingCount": { "$sum": 1 }, "ticketCount": { "$sum": { "$size": "$seats" } }, "totalAmountVnd": { "$sum": "$totalAmountVnd" } } },
+  { "$sort": { "_id": 1 } }
+]
+```
+
+Giá trị ở pipeline này là phân bố lịch sử theo trạng thái. KPI giá trị booking còn hiệu lực chỉ lấy `CONFIRMED`; không cộng `CANCELLED` vào doanh thu hiện hành.
+
+### Top khách hàng theo booking thành công
+
+Collection đầu vào: `bookings`. `$group` được thực hiện trước `$lookup`, vì vậy tổng tiền booking không bị nhân đôi theo số ghế.
+
+```json
+[
+  { "$match": { "status": "CONFIRMED" } },
+  { "$group": { "_id": "$customerId", "bookingCount": { "$sum": 1 }, "ticketCount": { "$sum": { "$size": "$seats" } }, "totalAmountVnd": { "$sum": "$totalAmountVnd" } } },
+  { "$lookup": { "from": "customers", "localField": "_id", "foreignField": "_id", "as": "customer" } },
+  { "$project": { "_id": 0, "customerId": "$_id", "customerName": { "$ifNull": [{ "$first": "$customer.fullName" }, "Không rõ khách"] }, "bookingCount": 1, "ticketCount": 1, "totalAmountVnd": 1 } },
+  { "$sort": { "bookingCount": -1, "ticketCount": -1, "customerId": 1 } },
+  { "$limit": 10 }
+]
+```
+
 ## Explain và kiểm kê schema
 
 Trong shell tương thích MongoDB, có thể so sánh truy vấn đọc trước/sau index bằng:
@@ -183,7 +232,7 @@ Kiểm kê hiện tại không thấy validator ở sáu collection. Đây là k
 
 Chỉ đánh dấu hoàn tất sau khi thao tác thật trong Mingo và chụp ảnh có dữ liệu/kết quả rõ ràng.
 
-- [ ] Kết nối `localhost:27017`, database `cinema_booking`, đủ sáu collection.
+- [ ] Kết nối `localhost:27017`, database `cinema_booking_demo`, đủ sáu collection.
 - [ ] Dùng trang Khám phá dữ liệu để chạy filter/aggregation qua backend; đối chiếu từng kết quả với filter/pipeline đã chạy trên Mingo (trang ứng dụng không được tính là thao tác Mingo).
 - [ ] Mở document thật ở `movies`, `showtimes`, `showtime_seats`, `bookings`.
 - [ ] Chụp filter booking theo khách/trạng thái/khoảng ngày và filter ghế theo suất/trạng thái.

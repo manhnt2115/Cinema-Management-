@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { MongoClient } from 'mongodb';
 
 const client = new MongoClient(process.env.MONGODB_URI || 'mongodb://localhost:27017');
-const dbName = 'cinema_booking';
+const dbName = process.env.MONGODB_DB_NAME || 'cinema_booking';
 const now = new Date();
 
 const customers = [
