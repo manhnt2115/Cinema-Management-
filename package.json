@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test frontend/tests/query.test.js",
+    "test:acceptance:api": "node database/tests/acceptance-api.js",
+    "test:acceptance:read": "node database/tests/acceptance-read-models.js && node database/tests/acceptance-filters.js",
+    "test:acceptance:ui": "node frontend/tests/acceptance-ui.cjs",
+    "test:acceptance:regression": "node frontend/tests/acceptance-regression.js",
+    "test:acceptance:ui-oracle": "node frontend/tests/acceptance-ui-oracle.js",
+    "test:acceptance:actions": "node frontend/tests/acceptance-actions.js",
+    "test:acceptance:mongo": "node database/tests/acceptance-mongo.js",
+    "test:acceptance:boundaries": "node database/tests/acceptance-boundaries.js",
     "dev:api": "node --watch backend/src/server.js",
     "dev:web": "vite frontend --host 0.0.0.0",
     "build:web": "vite build frontend",
@@ -11,6 +20,9 @@
     "seed:demo": "node database/seed/seed-demo.js",
     "seed:future": "node database/seed/extend-future.js",
     "db:check": "node database/scripts/check-consistency.js",
+    "db:fingerprint": "node database/scripts/fingerprint.js",
+    "test:read-models": "node database/tests/read-models.js",
+    "test:ui": "node frontend/tests/ui-smoke.cjs",
     "db:backup": "node database/scripts/backup-database.js",
     "db:test-validators": "node database/scripts/test-validators.js",
     "db:measure-indexes": "node database/scripts/measure-indexes.js",
@@ -24,6 +36,7 @@
     "mongodb": "^6.12.0"
   },
   "devDependencies": {
+    "playwright": "^1.65.1",
     "vite": "^8.3.8"
   }
 }
