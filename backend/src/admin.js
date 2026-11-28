@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from './db.js';
+import { validCalendarDate } from './query.js';
 
 const movieStatuses = new Set(['NOW_SHOWING', 'COMING_SOON']);
 const showtimeStatuses = new Set(['OPEN', 'CLOSED']);
@@ -14,12 +15,12 @@ function isLocalRequest(req) {
 function readMovieInput(body) {
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const genres = Array.isArray(body?.genres) ? body.genres.map(value => typeof value === 'string' ? value.trim() : '') : [];
-  const durationMinutes = Number(body?.durationMinutes);
+  const durationMinutes = typeof body?.durationMinutes === 'number' ? body.durationMinutes : NaN;
   const status = body?.status;
   const synopsis = typeof body?.synopsis === 'string' ? body.synopsis.trim() : '';
   const posterImage = typeof body?.posterImage === 'string' ? body.posterImage.trim() : '';
   if (!title || title.length > 160) return { error: 'Tên phim là bắt buộc và tối đa 160 ký tự.' };
-  if (!genres.length || genres.some(value => !value) || new Set(genres).size !== genres.length) return { error: 'Thể loại phải là danh sách không rỗng, không có mục trống hoặc trùng.' };
+  if (!genres.length || genres.some(value => !value || value.length > 60) || new Set(genres).size !== genres.length) return { error: 'Thể loại phải là danh sách không rỗng, mỗi mục tối đa 60 ký tự, không trống hoặc trùng.' };
   if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) return { error: 'Thời lượng phải là số nguyên từ 1 đến 600 phút.' };
   if (!movieStatuses.has(status)) return { error: 'Trạng thái phim phải là NOW_SHOWING hoặc COMING_SOON.' };
   if (synopsis.length > 2000) return { error: 'Tóm tắt phim tối đa 2.000 ký tự.' };
@@ -32,7 +33,7 @@ function readShowtimeInput(body) {
   const roomId = typeof body?.roomId === 'string' ? body.roomId.trim() : '';
   const startAt = new Date(body?.startAt);
   const endAt = new Date(body?.endAt);
-  const basePriceVnd = Number(body?.basePriceVnd);
+  const basePriceVnd = typeof body?.basePriceVnd === 'number' ? body.basePriceVnd : NaN;
   const status = body?.status || 'OPEN';
   if (!movieId || !roomId) return { error: 'movieId và roomId là bắt buộc.' };
   if (!Number.isFinite(startAt.getTime()) || !Number.isFinite(endAt.getTime()) || startAt <= new Date() || endAt <= startAt) return { error: 'Giờ kết thúc phải sau giờ bắt đầu và suất chiếu phải ở tương lai.' };
@@ -184,8 +185,10 @@ export function registerAdminRoutes(app) {
 
   app.get('/api/admin/customers', async (req, res, next) => {
     try {
-      const query = String(req.query.q || '').trim(); const filter = query ? { $or: [{ _id: { $regex: query, $options: 'i' } }, { fullName: { $regex: query, $options: 'i' } }] } : {};
-      const db = await getDb(); const items = await db.collection('customers').aggregate([{ $match: filter }, { $lookup: { from: 'bookings', localField: '_id', foreignField: 'customerId', as: 'bookings' } }, { $project: { fullName: 1, createdAt: 1, bookingCount: { $size: '$bookings' } } }, { $sort: { fullName: 1, _id: 1 } }]).toArray();
+      if (req.query.q !== undefined && (typeof req.query.q !== 'string' || req.query.q.length > 200)) return res.status(400).json({ error: 'Từ khóa phải là chuỗi tối đa 200 ký tự.' });
+      const query = (req.query.q || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const filter = query ? { $or: ['_id', 'fullName', 'email'].map(field => ({ [field]: { $regex: query, $options: 'i' } })) } : {};
+      const db = await getDb(); const items = await db.collection('customers').aggregate([{ $match: filter }, { $lookup: { from: 'bookings', localField: '_id', foreignField: 'customerId', as: 'bookings' } }, { $project: { fullName: 1, email: 1, createdAt: 1, bookingCount: { $size: '$bookings' } } }, { $sort: { fullName: 1, _id: 1 } }]).toArray();
       return res.json(items);
     } catch (error) { return next(error); }
   });
@@ -270,6 +273,8 @@ export function registerAdminRoutes(app) {
 
   app.get('/api/admin/bookings', async (req, res, next) => {
     try {
+      if (Object.values(req.query).some(value => typeof value !== 'string')) return res.status(400).json({ error: 'Tham số lọc phải là chuỗi đơn.' });
+      if (req.query.sort !== undefined && !['asc', 'desc'].includes(req.query.sort)) return res.status(400).json({ error: 'Thứ tự sắp xếp không hợp lệ.' });
       const filter = {};
       if (req.query.bookingId) filter._id = String(req.query.bookingId).trim();
       if (req.query.customerId) filter.customerId = String(req.query.customerId).trim();
@@ -281,6 +286,7 @@ export function registerAdminRoutes(app) {
         filter.status = status;
       }
       if (req.query.from || req.query.to) {
+        if ([req.query.from, req.query.to].some(value => value && !validCalendarDate(value))) return res.status(400).json({ error: 'Ngày lọc không tồn tại hoặc sai định dạng ISO.' });
         const from = req.query.from ? new Date(String(req.query.from)) : null;
         const to = req.query.to ? new Date(String(req.query.to)) : null;
         if ((from && !Number.isFinite(from.getTime())) || (to && !Number.isFinite(to.getTime())) || (from && to && from >= to)) return res.status(400).json({ error: 'Khoảng ngày lọc không hợp lệ.' });
@@ -289,10 +295,11 @@ export function registerAdminRoutes(app) {
         if (to) filter.createdAt.$lt = to;
       }
       const page = Number(req.query.page || 0), pageSize = Number(req.query.pageSize || 20);
-      if (!Number.isInteger(page) || page < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) return res.status(400).json({ error: 'Phân trang không hợp lệ; page >= 1 và pageSize từ 1 đến 100.' });
+      if (!Number.isSafeInteger(page) || (req.query.page !== undefined && (!/^\d+$/.test(req.query.page) || page < 1)) || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) return res.status(400).json({ error: 'Phân trang không hợp lệ; page >= 1 và pageSize từ 1 đến 100.' });
       const db = await getDb(), collection = db.collection('bookings');
-      if (!page) return res.json(await attachShowtimeDetails(db, await collection.find(filter).sort({ createdAt: -1, _id: -1 }).limit(100).toArray()));
-      const total = await collection.countDocuments(filter), items = await collection.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray();
+      const direction = req.query.sort === 'asc' ? 1 : -1;
+      if (!page) return res.json(await attachShowtimeDetails(db, await collection.find(filter).sort({ createdAt: direction, _id: direction }).limit(100).toArray()));
+      const total = await collection.countDocuments(filter), items = await collection.find(filter).sort({ createdAt: direction, _id: direction }).skip((page - 1) * pageSize).limit(pageSize).toArray();
       return res.json({ items: await attachShowtimeDetails(db, items), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
     } catch (error) { return next(error); }
   });

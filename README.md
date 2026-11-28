@@ -158,7 +158,7 @@ Frontend khách hàng có tìm phim theo tên/thể loại dựa trên dữ li�
 
 ### Khu quản trị demo local
 
-Nút **Quản trị demo** mở khu quản trị được tách thành năm trang điều hướng: **Tổng quan**, **Phim**, **Suất chiếu**, **Tra cứu booking** và **Khám phá dữ liệu**. Trang tổng quan hiển thị ba aggregation đọc từ MongoDB. Trang Suất chiếu lọc theo phim, ngày chiếu, phòng và trạng thái; có thể tải số ghế AVAILABLE/HELD/BOOKED cho từng suất. Trang Tra cứu booking hỗ trợ lọc chính xác theo mã booking, khách hàng, mã suất, trạng thái và ngày. Trang Khám phá dữ liệu chạy filter booking, filter ghế và từng aggregation qua backend để người xem hiểu collection, pipeline, kết quả và index liên quan; pipeline đầy đủ để chạy trong Mingo nằm ở [`database/queries/mingo-readonly.md`](database/queries/mingo-readonly.md). Thao tác xem/lọc các trang này dùng GET/read-only; thao tác quản lý phim/suất vẫn có API ghi. Trang hiển thị cảnh báo rõ đây là demo local, không có đăng nhập và không an toàn để triển khai công khai. Backend chỉ nhận các route `/api/admin/*` từ loopback và từ Origin frontend local `http://localhost:5173` hoặc `http://127.0.0.1:5173` (Origin trống được chấp nhận cho công cụ local). Không mở cổng API ra Internet.
+Khu quản trị nội bộ mở từ liên kết ở footer hoặc `#/admin/dashboard`, gồm Tổng quan, Báo cáo thống kê, Phim, Phòng chiếu, Suất chiếu, Khách hàng và Đơn đặt vé. Các danh sách có tìm kiếm, bộ lọc, phân trang và chi tiết phù hợp từng nghiệp vụ. Thêm/sửa phim và suất chiếu sử dụng modal; phòng và khách hàng chỉ được tra cứu theo phạm vi backend hiện có. Công cụ truy vấn kỹ thuật đã được gỡ khỏi giao diện; tài liệu và pipeline nghiên cứu vẫn được giữ trong `database/`. API `/api/admin/*` tiếp tục giới hạn kết nối loopback và các Origin frontend local đã cho phép trong backend; đây không phải hệ thống xác thực tài khoản. Không mở API quản trị ra Internet.
 
 - `GET /api/admin/movies`, `GET /api/admin/rooms`, `GET /api/admin/showtimes`
 - `GET /api/admin/analytics` – đọc sáu aggregation: vé/giá trị theo phim, thanh toán theo ngày, tỷ lệ ghế, vé theo khung giờ, booking theo trạng thái và top khách hàng; kèm KPI lấy từ backend.
@@ -241,18 +241,55 @@ MongoDB standalone không cung cấp transaction đa document. Backend giữ gh�
 - `rooms.seats` nhúng sơ đồ ghế tĩnh vì danh sách ghế thuộc một phòng và thường được đọc cùng phòng.
 - `showtimes.movieId` và `showtimes.roomId` tham chiếu `movies`/`rooms`; `showtime_seats.showtimeId` và `bookingId` tham chiếu suất/booking vì trạng thái ghế phụ thuộc từng suất.
 - `bookings.customerId`, `showtimeId`, `movieId` tham chiếu các document gốc. `bookings.seats` nhúng `seatCode` và `unitPriceVnd` để giữ giá tại thời điểm mua; `payment` là thông tin thanh toán mô phỏng nhúng trong booking.
-- Index đã kiểm tra bằng Node driver: unique `customers.email`; `showtimes { movieId: 1, startAt: 1 }`; `bookings { customerId: 1, createdAt: -1 }`; unique `showtime_seats { showtimeId: 1, seatCode: 1 }`; `movies`/`rooms` chỉ có `_id_`.
-- Lần kiểm tra hiện tại không thấy schema validator trên sáu collection. Không có validator nghĩa là ứng dụng/backend đang gánh phần validation nghiệp vụ; không tuyên bố MongoDB đang cưỡng chế kiểu/trạng thái bằng validator.
+- Sáu index nghiệp vụ được giữ nguyên: unique `customers.email`; `showtimes { movieId: 1, startAt: 1 }` và `{ roomId: 1, startAt: 1, endAt: 1 }`; `bookings { customerId: 1, createdAt: -1 }` và `{ showtimeId: 1, status: 1 }`; unique `showtime_seats { showtimeId: 1, seatCode: 1 }`. Mỗi collection có thêm `_id_`.
+- Sáu collection của `cinema_management` có JSON Schema validator `strict/error`; cấu trúc validator và index được ghi nhận cùng fingerprint để đối chiếu trước/sau thay đổi giao diện.
 - MongoDB đảm bảo atomicity ở cấp một document. Luồng booking cập nhật nhiều ghế và một booking trên standalone bằng cập nhật có điều kiện và thao tác bù; đây không phải transaction và không thể khôi phục chắc chắn khi tiến trình/máy chủ dừng đột ngột.
 - Thanh toán chỉ mô phỏng (`SIMULATED`); không kết nối cổng thanh toán thật.
 
 ## Điều hướng giao diện CineVue
 
-- Khách hàng: URL gốc, chọn phim, suất chiếu, ghế, đặt và hủy vé.
+- Khách hàng: `#/`, `#/movies`, `#/movies/:id`, `#/schedule`, `#/booking/:id`, `#/checkout`, `#/booking-success`, `#/my-tickets`, `#/my-tickets/:id`, `#/help`.
 - Dashboard quản trị: `#/admin/dashboard`.
 - Báo cáo thống kê: `#/admin/reports`.
 - Quản lý nghiệp vụ: `#/admin/movies`, `#/admin/rooms`, `#/admin/showtimes`, `#/admin/customers`, `#/admin/bookings`.
-- Khám phá dữ liệu: `#/admin/data-explorer`.
+- Công cụ khám phá kỹ thuật không nằm trong các route nghiệp vụ; mã tham khảo phiên bản trước vẫn được lưu trong `frontend/src/admin.js`.
 - URL cũ `#admin` vẫn mở Dashboard.
 
-Dashboard chỉ hiển thị KPI và biểu đồ tóm tắt; bảng aggregation chi tiết nằm trong trang Báo cáo. ConfirmDialog dùng chung thay hộp thoại trình duyệt cho hủy vé, xóa phim và xóa suất chiếu.
+Tổng quan hiển thị KPI riêng và biểu đồ tóm tắt. Báo cáo chia bốn nhóm Phim, Thanh toán, Suất chiếu, Đặt vé & khách hàng; biểu đồ lấy dữ liệu từ API. Thành phần modal, toast và xác nhận dùng chung nằm trong `frontend/src/ui.js`. Khu quản trị nghiệp vụ được kết nối qua `frontend/src/admin-business.js`; các trang bổ trợ khách hàng nằm trong `frontend/src/pages/customer-extras.js`.
+
+
+## Nghiệm thu giao diện và bảo toàn dữ liệu
+
+Nghiệm thu chức năng cuối cùng có quy trình riêng: [kiểm thử và bảo vệ database chính](docs/FINAL_ACCEPTANCE.md). `npm test` chỉ chạy unit test, không kết nối hoặc ghi MongoDB. Các lệnh QA bên dưới vẫn giữ nguyên guard; không dùng chúng để kiểm thử database chính.
+
+Xem [báo cáo nâng cấp UI/UX](docs/UI_UX_REFINEMENT.md). `npm run db:fingerprint` chỉ đọc toàn bộ sáu collection, validator và index để tạo SHA-256 tái lập; đối chiếu trước/sau trên cùng database. Không seed, migration hoặc kiểm thử ghi trên database chính trong quá trình nâng cấp giao diện.
+
+Chạy kiểm thử trình duyệt với Microsoft Edge đã cài trên máy. API và web QA phải được khởi chạy riêng; tài liệu hướng dẫn ví dụ API cổng 3002 và web cổng 5174:
+
+```powershell
+# Terminal API QA: dùng tên database mới, rỗng mỗi đợt kiểm thử
+$env:MONGODB_DB_NAME = 'cinema_management_test_uiux_<hau_to_rieng>'
+$env:SEED_REFERENCE_AT = (Get-Date).ToUniversalTime().ToString('o')
+npm run seed:demo
+$env:PORT = '3002'
+npm run dev:api
+```
+
+```powershell
+# Terminal web QA
+$env:VITE_API_BASE_URL = 'http://localhost:3002'
+npm run dev:web -- --port 5174 --strictPort
+```
+
+```powershell
+# Terminal kiểm thử: đặt cùng tên database QA với API
+$env:MONGODB_DB_NAME = 'cinema_management_test_uiux_<hau_to_rieng>'
+$env:TEST_API_BASE_URL = 'http://127.0.0.1:3002'
+$env:TEST_WEB_BASE_URL = 'http://127.0.0.1:5174/'
+npm run test:integration
+npm run test:read-models
+npm run test:ui
+npm run db:check
+```
+
+`test:ui` có thao tác tạo/sửa dữ liệu QA, dùng Playwright với Edge và từ chối API không trỏ vào database kiểm thử. Ảnh, kết quả JSON và bản in PDF được lưu ngoài repository tại `../MinhChung/UIUX` (hoặc `UI_EVIDENCE_DIR`). Không chạy lại seed trên QA đã có dữ liệu. Kết thúc kiểm thử, dừng API/web QA và dùng terminal mới với `.env` chính thức để chạy phiên bản chính.
